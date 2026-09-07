@@ -77,6 +77,8 @@ sealedSecrets: {}
 #   encryptedData:
 #     db-password: AgB...
 # ghcr-pull:                        # 拉取凭证用 cluster-wide 密文（ADR-8），各文件同一份
+#   annotations:                    # scope 注解必须保留！丢了控制器按 strict 解密，报 no key could decrypt
+#     sealedsecrets.bitnami.com/cluster-wide: "true"
 #   template:
 #     type: kubernetes.io/dockerconfigjson
 #   encryptedData:

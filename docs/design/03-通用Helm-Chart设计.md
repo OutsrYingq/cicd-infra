@@ -153,6 +153,11 @@ apiVersion: bitnami.com/v1alpha1
 kind: SealedSecret
 metadata:
   name: {{ $name }}
+  {{- with $ss.annotations }}
+  # scope 注解必须透传：cluster-wide 密文丢了它，控制器按 strict 解密必然失败
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   {{- with $ss.template }}
   template:
