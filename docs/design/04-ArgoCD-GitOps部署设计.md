@@ -95,7 +95,7 @@ spec:
               - "$values/envs/{{ .env }}/{{ .service }}.yaml"
         # 源 2：仅提供 $values 引用（deploy 仓库）
         - repoURL: https://github.com/OutsrYingq/deploy.git
-          revision: main
+          targetRevision: main
           ref: values
       destination:
         server: https://kubernetes.default.svc
