@@ -55,6 +55,10 @@
 
 ```yaml
 name: CI/CD
+permissions:
+  contents: read
+  packages: write   # GHCR 推送；被调用方不可越权，必须在业务仓库声明
+
 on:
   push:
     branches: [main]                  # 合并即自动发 dev
