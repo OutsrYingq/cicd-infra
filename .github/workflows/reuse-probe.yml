@@ -1,0 +1,7 @@
+name: Reuse Probe
+on: workflow_call
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "cross-repo reusable workflow works"
