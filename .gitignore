@@ -14,6 +14,11 @@ Thumbs.db
 # helm 产物
 *.tgz
 
+# 集群凭证（严禁入库的兜底）
+*kubeconfig*
+k3s.yaml
+*.kubeconfig
+
 # 本地临时
 *.log
 tmp/
