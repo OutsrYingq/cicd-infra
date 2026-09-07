@@ -1,0 +1,7 @@
+apiVersion: v2
+name: generic-service
+description: 组织通用无状态服务 chart（CI/CD 基础设施配套，设计见 docs/design/03-通用Helm-Chart设计.md）
+type: application
+version: 0.1.0
+# appVersion 不作为 image.tag 回退：tag 必填，缺失渲染报错（防静默部署旧版本）
+appVersion: "none"

@@ -1,0 +1,61 @@
+# 可复用虚机部署通道：SSH 到目标虚机执行 docker compose 升级
+# 设计文档：docs/design/06-虚机部署通道.md
+#
+# 业务仓库接入方式：
+#   jobs:
+#     vm-deploy:
+#       uses: OutsrYingq/cicd-infra/.github/workflows/deploy-vm.yml@main
+#       with:
+#         service: legacy-svc
+#       secrets: inherit
+#
+# 前置：虚机已初始化（docker + compose 插件、部署用户、/opt/apps/<service>/ 下
+#       放 docker-compose.yml（cicd-infra/docker/compose.yaml 模板）与 .env）
+
+name: VM Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "服务名（小写，与镜像名一致）"
+        required: true
+        type: string
+      host:
+        description: "目标虚机 IP/主机名（空=使用组织变量 VM_HOST）"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vm-deploy-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  vm-deploy:
+    runs-on: ubuntu-latest
+    # 如需发布审批：取消注释并在 GitHub Environments 配置 reviewers
+    # environment: vm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ inputs.host || vars.VM_HOST }}
+          username: ${{ vars.VM_USER || 'deploy' }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/apps/${{ inputs.service }}
+            echo '${{ secrets.GHCR_PULL_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_PULL_USER }}' --password-stdin
+            IMAGE_TAG=${{ steps.meta.outputs.tag }} docker compose up -d --pull always
+            docker image prune -f --filter "until=168h"

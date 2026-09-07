@@ -1,0 +1,118 @@
+# 可复用服务流水线：构建 → 推 GHCR → bump deploy 仓库镜像 tag（Argo CD 完成实际部署）
+# 设计文档：docs/design/02-构建与镜像流水线.md
+#
+# 业务仓库接入方式（.github/workflows/ci.yml）：
+#   jobs:
+#     pipeline:
+#       uses: OutsrYingq/cicd-infra/.github/workflows/pipeline.yml@main   # 稳定后改 @v1
+#       with:
+#         service: user-api
+#         deploy-env: ${{ (github.event_name == 'push' && 'dev') || inputs.env || '' }}
+#       secrets: inherit
+#
+# 触发语义：pull_request → 只测试+构建验证（不推镜像不部署）
+#           push main    → 构建推镜像，自动部署 dev
+#           workflow_dispatch 选 prod → 经 GitHub Environment 审批后部署
+
+name: Service Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "服务名（小写，=镜像名=deploy仓库文件名=应用名）"
+        required: true
+        type: string
+      deploy-env:
+        description: "部署环境（dev/prod，空=只构建不部署）"
+        required: false
+        type: string
+        default: ""
+      dockerfile:
+        description: "Dockerfile 路径"
+        required: false
+        type: string
+        default: "Dockerfile"
+      platforms:
+        description: "目标架构（多架构逗号分隔，如 linux/amd64,linux/arm64）"
+        required: false
+        type: string
+        default: "linux/amd64"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: pipeline-${{ inputs.service }}-${{ inputs.deploy-env || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 测试在 Dockerfile 的 test stage 内执行（ADR-9），流水线不感知语言
+      - name: Compute image metadata
+        id: meta
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ inputs.service }}" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # PR 事件不登录不推送，仅验证构建（fork PR 的 GITHUB_TOKEN 无包写权限）
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    if: inputs.deploy-env != ''
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.deploy-env }}   # prod 在 GitHub Environments 配审批人
+    steps:
+      - name: Checkout deploy repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/deploy
+          token: ${{ secrets.GITOPS_PAT }}   # 组织级 secret，仅 deploy 仓库写权限
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      # GitOps：只改 deploy 仓库的 image.tag，实际部署由集群内 Argo CD 完成（CI 不持集群凭证）
+      - name: Bump image tag in deploy repo
+        run: |
+          FILE="envs/${{ inputs.deploy-env }}/${{ inputs.service }}.yaml"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::deploy 仓库缺少 $FILE（参考 envs/README.md 的示例创建）"
+            exit 1
+          fi
+          yq -i '.image.tag = "${{ needs.build.outputs.tag }}"' "$FILE"
+          git config user.name  "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git commit -am "deploy(${{ inputs.deploy-env }}): ${{ inputs.service }} -> ${{ needs.build.outputs.tag }}"
+          git push

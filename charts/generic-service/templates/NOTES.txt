@@ -1,0 +1,14 @@
+{{ include "generic-service.fullname" . }} 已部署
+
+  环境    : {{ .Values.env }}（namespace {{ .Release.Namespace }}）
+  镜像    : {{ .Values.image.repository }}:{{ .Values.image.tag }}
+  副本    : {{ if .Values.hpa.enabled }}{{ .Values.hpa.minReplicas }}~{{ .Values.hpa.maxReplicas }}（HPA）{{ else }}{{ .Values.replicaCount }}{{ end }}
+  健康检查: {{ if .Values.probes.enabled }}{{ .Values.probes.path }}{{ else }}已禁用{{ end }}
+
+访问方式：
+{{- if .Values.ingress.enabled }}
+  Ingress : http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- end }}
+  本地调试: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "generic-service.fullname" . }} 8080:{{ .Values.port }}
+
+提示：发布/回滚 = 修改 deploy 仓库 image.tag（git revert）；改配置 = 提 PR 改本服务的 envs/<env>/{{ .Values.service }}.yaml

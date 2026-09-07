@@ -1,0 +1,16 @@
+# 虚机部署 compose 模板（设计：docs/design/06-虚机部署通道.md）
+# 使用：拷贝到虚机 /opt/apps/<service>/docker-compose.yml，环境变量写同目录 .env
+# .env 示例：
+#   ORG=outsryingq
+#   SERVICE=legacy-svc
+#   PORT=8080
+#   # 其余业务配置直接追加（KEY=VALUE 形式，注入容器环境变量）
+# IMAGE_TAG 由部署流水线通过 SSH 注入，不在 .env 中维护
+services:
+  app:
+    image: ghcr.io/${ORG:?}/${SERVICE:?}:${IMAGE_TAG:?}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    env_file:
+      - .env

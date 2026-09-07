@@ -1,0 +1,19 @@
+# cicd-infra 仓库 .gitignore
+# 注意：deploy/ 是独立 Git 仓库（见 docs/实现步骤.md 阶段 2），
+# 本地工作区共存时在此屏蔽，避免被误提交进基础设施仓库
+deploy/
+
+# OS / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# helm 产物
+*.tgz
+
+# 本地临时
+*.log
+tmp/

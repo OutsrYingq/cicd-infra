@@ -1,0 +1,90 @@
+# generic-service 默认值（配置分层第 1 层，环境差异写在 deploy 仓库 envs/<env>/<svc>.yaml）
+# 设计文档：docs/design/03-通用Helm-Chart设计.md 第 3 节
+
+# ── 元数据（ApplicationSet files generator 依赖，同时用于命名与标签）──
+service: ""            # 必填：服务名 = deploy 仓库文件名 = 镜像名
+env: ""                # 必填：环境名（dev/prod）
+
+nameOverride: ""
+
+# ── 镜像 ──
+image:
+  repository: ""       # 必填：如 ghcr.io/outsryingq/user-api
+  tag: ""              # 必填：CI 自动 bump；手动改 = 定点发布/回滚。缺失渲染直接报错
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# - name: ghcr-pull    # GHCR 私有包拉取（cluster-wide sealed 密文，见 docs/design/05 4.3）
+
+replicaCount: 1
+
+serviceAccount:
+  create: false        # 需要 RBAC 的服务才开
+  name: ""             # 留空则用 <服务名>
+  annotations: {}
+
+# 注意：网络配置用顶层 port/serviceType，不能叫 service——
+# 顶层 service 已被"服务名"元数据（字符串）占用，同名会把整个配置块覆盖掉
+port: 8080             # 服务端口（容器 / Service / 探针共用）
+serviceType: ClusterIP
+
+ingress:
+  enabled: true
+  className: traefik   # k3s 默认 ingress 控制器
+  host: ""             # 必填（ingress.enabled 时）：如 user-api.dev.example.com
+  annotations: {}
+  tls:
+    enabled: false     # HTTP 起步（ADR-7）；接入 cert-manager 后开启
+    secretName: ""
+
+# ── 应用配置 ──
+config: {}             # 非敏感配置 → ConfigMap → envFrom 环境变量；变更触发滚动重启（checksum 注解）
+# LOG_LEVEL: debug
+# REDIS_ADDR: redis:6379
+
+secretEnv: ""          # envFrom 整包引用的 Secret 名（sealedSecrets 解密产物），如 user-api-secret
+
+extraEnv: []           # 原生 env 片段（valueFrom 细粒度引用）
+# - name: DB_PASSWORD
+#   valueFrom:
+#     secretKeyRef: { name: user-api-secret, key: db-password }
+
+probes:
+  enabled: true
+  path: /healthz       # 服务必须实现；无健康接口的服务设 enabled: false
+  initialDelaySeconds: 5
+  startupSeconds: 60   # startupProbe 预算（秒）：启动窗口内不被 liveness 误杀，慢启动调大
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+hpa:
+  enabled: false       # 开启后 Deployment 不再固定 replicas（前提：metrics-server 可用）
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── 敏感配置（kubeseal 生成密文，默认 strict 绑定 ns+name；见 docs/design/05 第 4 节）──
+sealedSecrets: {}
+# user-api-secret:
+#   encryptedData:
+#     db-password: AgB...
+# ghcr-pull:                        # 拉取凭证用 cluster-wide 密文（ADR-8），各文件同一份
+#   template:
+#     type: kubernetes.io/dockerconfigjson
+#   encryptedData:
+#     .dockerconfigjson: AgB...
+
+# ── GHCR 拉取凭证（明文进 Git，仅限 dev 临时验证；生产必须走 sealedSecrets）──
+imageCredentials:
+  enabled: false       # 开启时生成 Secret <服务名>-registry，需同时在 imagePullSecrets 引用
+  registry: ghcr.io
+  username: ""
+  password: ""
